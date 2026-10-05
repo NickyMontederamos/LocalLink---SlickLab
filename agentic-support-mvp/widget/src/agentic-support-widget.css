@@ -1,0 +1,9 @@
+/* Optional host-level theme tokens. The widget itself uses Shadow DOM. */
+agentic-support {
+  --as-accent: #3ee6a3;
+  --as-bg: #08141b;
+  --as-panel: #0d2029;
+  --as-text: #effbff;
+  --as-muted: #93aeba;
+  --as-line: #29434e;
+}

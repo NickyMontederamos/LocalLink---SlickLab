@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Production Embed Example</title></head>
+<body>
+<h1>Your product page</h1>
+<script type="module" src="https://cdn.example.com/agentic-support-widget.js" integrity="REPLACE_WITH_SRI_HASH" crossorigin="anonymous"></script>
+<agentic-support tenant="pk_public_tenant_key" api-base="https://support-api.example.com/v1" title="Product Support" product="Example Product" product-version="1.0" position="right" theme="dark"></agentic-support>
+<script>
+document.querySelector('agentic-support').addEventListener('agentic-support-message',event=>console.log('Support interaction',event.detail));
+</script>
+</body>
+</html>
