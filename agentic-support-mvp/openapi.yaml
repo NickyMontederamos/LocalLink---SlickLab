@@ -1,0 +1,364 @@
+openapi: 3.1.0
+info:
+  title: Agentic Support API
+  version: 0.1.0
+  description: Public widget and authenticated support API. Agent proposals never replace server authorization.
+servers:
+  - url: https://support-api.example.com/v1
+security: []
+tags:
+  - name: Widget
+  - name: Conversations
+  - name: Feedback
+  - name: Handoffs
+  - name: Admin
+paths:
+  /widget/config:
+    get:
+      tags: [Widget]
+      summary: Resolve public widget configuration
+      parameters:
+        - in: header
+          name: X-Tenant-Key
+          required: true
+          schema: { type: string }
+        - in: header
+          name: Origin
+          required: true
+          schema: { type: string, format: uri }
+      responses:
+        '200':
+          description: Public, non-secret widget configuration
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WidgetConfig' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /sessions:
+    post:
+      tags: [Widget]
+      summary: Create a short-lived anonymous or signed-in support session
+      parameters:
+        - in: header
+          name: X-Tenant-Key
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateSessionRequest' }
+      responses:
+        '201':
+          description: Session created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+  /conversations:
+    post:
+      tags: [Conversations]
+      security: [{ bearerAuth: [] }]
+      summary: Start a conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateConversationRequest' }
+      responses:
+        '201':
+          description: Conversation created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Conversation' }
+  /conversations/{conversationId}:
+    get:
+      tags: [Conversations]
+      security: [{ bearerAuth: [] }]
+      summary: Read the authorized conversation transcript
+      parameters:
+        - $ref: '#/components/parameters/ConversationId'
+      responses:
+        '200':
+          description: Conversation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConversationDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /conversations/{conversationId}/messages:
+    post:
+      tags: [Conversations]
+      security: [{ bearerAuth: [] }]
+      summary: Submit a customer message and receive the validated assistant result
+      parameters:
+        - $ref: '#/components/parameters/ConversationId'
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string, minLength: 16, maxLength: 128 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateMessageRequest' }
+      responses:
+        '200':
+          description: Assistant result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssistantResult' }
+        '409':
+          description: Idempotency conflict
+  /conversations/{conversationId}/handoffs:
+    post:
+      tags: [Handoffs]
+      security: [{ bearerAuth: [] }]
+      summary: Request a human handoff
+      parameters:
+        - $ref: '#/components/parameters/ConversationId'
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HandoffRequest' }
+      responses:
+        '202':
+          description: Handoff queued
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Handoff' }
+  /conversations/{conversationId}/feedback:
+    post:
+      tags: [Feedback]
+      security: [{ bearerAuth: [] }]
+      summary: Record explicit feedback
+      parameters:
+        - $ref: '#/components/parameters/ConversationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FeedbackRequest' }
+      responses:
+        '204': { description: Recorded }
+  /admin/knowledge/sources:
+    post:
+      tags: [Admin]
+      security: [{ adminOAuth: [knowledge.write] }]
+      summary: Create a pending knowledge source
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateKnowledgeSourceRequest' }
+      responses:
+        '201': { description: Pending source created }
+  /admin/knowledge/sources/{sourceId}/approve:
+    post:
+      tags: [Admin]
+      security: [{ adminOAuth: [knowledge.approve] }]
+      summary: Approve a reviewed source version
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Source approved and queued for indexing }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    adminOAuth:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://identity.example.com/oauth/token
+          scopes:
+            knowledge.write: Create pending knowledge
+            knowledge.approve: Approve knowledge
+  parameters:
+    ConversationId:
+      in: path
+      name: conversationId
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    Forbidden:
+      description: Origin, tenant, permission or policy denied
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Resource not found or not visible to caller
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+  schemas:
+    WidgetConfig:
+      type: object
+      required: [tenantName, title, locale, theme, features]
+      properties:
+        tenantName: { type: string }
+        title: { type: string }
+        greeting: { type: string }
+        locale: { type: string }
+        theme: { type: string, enum: [light, dark, auto] }
+        privacyUrl: { type: string, format: uri }
+        features:
+          type: object
+          properties:
+            citations: { type: boolean }
+            handoff: { type: boolean }
+            feedback: { type: boolean }
+    CreateSessionRequest:
+      type: object
+      required: [channel, locale, consent]
+      properties:
+        channel: { type: string, enum: [web_widget, in_app, helpdesk, teams, slack, email, api] }
+        locale: { type: string }
+        consent:
+          type: object
+          required: [purpose, granted, policyVersion]
+          properties:
+            purpose: { type: string, const: product_support }
+            granted: { type: boolean }
+            policyVersion: { type: string }
+        signedUserToken: { type: string, description: Optional host-generated user assertion }
+    Session:
+      type: object
+      required: [sessionToken, expiresAt]
+      properties:
+        sessionToken: { type: string }
+        expiresAt: { type: string, format: date-time }
+        authenticated: { type: boolean }
+    CreateConversationRequest:
+      type: object
+      required: [channel, locale]
+      properties:
+        channel: { type: string }
+        locale: { type: string }
+        tonePreference: { type: string, enum: [adaptive, direct, professional, warm, technical] }
+        pageContext:
+          type: object
+          additionalProperties: false
+          properties:
+            title: { type: string, maxLength: 200 }
+            url: { type: string, format: uri }
+            product: { type: string, maxLength: 100 }
+            version: { type: string, maxLength: 50 }
+    Conversation:
+      type: object
+      required: [id, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string }
+        createdAt: { type: string, format: date-time }
+    ConversationDetail:
+      allOf:
+        - $ref: '#/components/schemas/Conversation'
+        - type: object
+          properties:
+            messages:
+              type: array
+              items: { $ref: '#/components/schemas/Message' }
+    CreateMessageRequest:
+      type: object
+      required: [clientMessageId, content]
+      properties:
+        clientMessageId: { type: string, minLength: 8, maxLength: 128 }
+        content: { type: string, minLength: 1, maxLength: 8000 }
+        attachments:
+          type: array
+          maxItems: 5
+          items:
+            type: object
+            required: [uploadId]
+            properties:
+              uploadId: { type: string, format: uuid }
+    Message:
+      type: object
+      required: [id, role, content, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        role: { type: string, enum: [customer, assistant, human_agent, system, tool] }
+        content: { type: string }
+        createdAt: { type: string, format: date-time }
+    Citation:
+      type: object
+      required: [sourceId, title, excerpt]
+      properties:
+        sourceId: { type: string, format: uuid }
+        title: { type: string }
+        uri: { type: string, format: uri }
+        excerpt: { type: string, maxLength: 800 }
+        effectiveAt: { type: string, format: date-time }
+    AssistantResult:
+      type: object
+      required: [message, citations, confidence, nextSteps, traceId]
+      properties:
+        message: { $ref: '#/components/schemas/Message' }
+        citations:
+          type: array
+          items: { $ref: '#/components/schemas/Citation' }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        assumptions:
+          type: array
+          items: { type: string }
+        nextSteps:
+          type: array
+          items: { type: string }
+        escalation:
+          type: object
+          properties:
+            recommended: { type: boolean }
+            reason: { type: string }
+        traceId: { type: string }
+    HandoffRequest:
+      type: object
+      required: [customerObjective]
+      properties:
+        customerObjective: { type: string, maxLength: 1000 }
+        preferredTeam: { type: string }
+        transcriptConsent: { type: boolean, default: true }
+    Handoff:
+      type: object
+      required: [id, status, destination]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [queued, assigned, completed] }
+        destination: { type: string }
+        externalCaseId: { type: string }
+    FeedbackRequest:
+      type: object
+      properties:
+        messageId: { type: string, format: uuid }
+        rating: { type: integer, minimum: 1, maximum: 5 }
+        resolved: { type: boolean }
+        comment: { type: string, maxLength: 2000 }
+    CreateKnowledgeSourceRequest:
+      type: object
+      required: [sourceType, title, owner, audience]
+      properties:
+        sourceType: { type: string }
+        canonicalUri: { type: string, format: uri }
+        title: { type: string }
+        owner: { type: string }
+        audience: { type: string, enum: [public, authenticated, support_agent, admin] }
+    Problem:
+      type: object
+      required: [type, title, status, traceId]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        traceId: { type: string }
